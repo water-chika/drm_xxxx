@@ -5,12 +5,14 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <fcntl.h>
+#include <drm_fourcc.h>
 
 static int modeset_find_crtc(int fd, drmModeRes* res, drmModeConnector* conn) {
     drmModeEncoder* enc;
     int i, j;
     for (i = 0; i < conn->count_encoders; ++i) {
     }
+    return -1;
 }
 
 static void modeset_resources_print(drmModeRes* res) {
@@ -78,6 +80,15 @@ static void modeset_crtc_print(drmModeCrtc* crtc) {
     printf("gamma size: %d\n", crtc->gamma_size);
 }
 
+static void modeset_fb_print(drmModeFB* fb) {
+    printf("fb id: %"PRIu32"\n", fb->fb_id);
+    printf("width x height: %"PRIu32"x%"PRIu32"\n", fb->width, fb->height);
+    printf("pitch: %"PRIu32"\n", fb->pitch);
+    printf("bpp: %"PRIu32"\n", fb->bpp);
+    printf("depth: %"PRIu32"\n", fb->depth);
+    printf("handle: %"PRIu32"\n", fb->handle);
+}
+
 int main(void){
     //int fd = drmOpen(NULL, "pci-0000:13:00.0");
     int fd = open("/dev/dri/card1", O_RDWR);
@@ -92,11 +103,30 @@ int main(void){
 
     modeset_resources_print(resources);
 
+    uint32_t connected_connector_id;
+    uint32_t connected_encoder_id;
+    uint32_t connected_crtc_id;
+    drmModeModeInfo prefered_mode;
+    uint32_t previous_fb_id;
+
+    for (int i = 0; i < resources->count_fbs; i++) {
+        uint32_t fb_id = resources->fbs[i];
+        drmModeFB* fb = drmModeGetFB(fd, fb_id);
+        printf("-----fb info-----");
+        modeset_fb_print(fb);
+    }
+
     for (int i = 0; i < resources->count_connectors; i++) {
         uint32_t connector_id = resources->connectors[i];
         drmModeConnector* connector = drmModeGetConnector(fd, connector_id);
         printf("\nconnector info:\n");
         modeset_connector_print(connector);
+        if (connector->connection == DRM_MODE_CONNECTED){
+            connected_connector_id = connector_id;
+            connected_encoder_id = connector->encoder_id;
+            prefered_mode = connector->modes[0];
+            assert(connector->count_modes > 0);
+        }
     }
 
     for (int i = 0; i < resources->count_encoders; i++) {
@@ -104,6 +134,9 @@ int main(void){
         drmModeEncoder* encoder = drmModeGetEncoder(fd, encoder_id);
         printf("\nencoder info\n");
         modeset_encoder_print(encoder);
+        if (encoder_id == connected_encoder_id) {
+            connected_crtc_id = encoder->crtc_id;
+        }
     }
 
     for (int i = 0; i < resources->count_crtcs; i++) {
@@ -111,6 +144,9 @@ int main(void){
         drmModeCrtc* crtc = drmModeGetCrtc(fd, crtc_id);
         printf("\n-----crtc info-----\n");
         modeset_crtc_print(crtc);
+        if (crtc_id == connected_crtc_id) {
+            previous_fb_id = crtc->buffer_id;
+        }
     }
 
     res = drmSetMaster(fd);
@@ -118,6 +154,43 @@ int main(void){
         fprintf(stderr, "drmSetMaster failed\n");
         goto close_fd;
     }
+
+    drmModeModeInfo mode = prefered_mode;
+    mode.flags = 0;
+    uint32_t fb_handle;
+    uint32_t pitch;
+    uint64_t fb_size;
+    uint32_t width=mode.hdisplay, height=mode.vdisplay;
+    res = drmModeCreateDumbBuffer(fd, width, height, 32, 0, &fb_handle, &pitch, &fb_size);
+    if (res != 0) {
+        fprintf(stderr, "drmModeCreateDumbBuffer failed\n");
+        goto close_fd;
+    }
+
+    uint32_t fb_id=0;
+    uint32_t offset=0;
+    res = drmModeAddFB(fd, width, height, 24, 32, pitch, fb_handle, &fb_id);
+    if (res != 0) {
+        fprintf(stderr, "drmModeAddFB failed\n");
+        goto free_dumb_buffer;
+    }
+    assert(fb_id != -1);
+
+    uint32_t connector_id = connected_connector_id;
+    res = drmModeSetCrtc(fd, connected_crtc_id, fb_id,
+            0, 0, &connector_id, 1, &mode);
+    if (res != 0) {
+        fprintf(stderr, "drmModeSetCrtc failed:%d\n", res);
+        goto free_dumb_buffer;
+    }
+
+    getchar();
+
+    res = drmModeSetCrtc(fd, connected_crtc_id, previous_fb_id,
+            0, 0, &connector_id, 1, &mode);
+
+free_dumb_buffer:
+    drmModeDestroyDumbBuffer(fd, fb_handle);
     
 close_fd:
     drmClose(fd);
