@@ -6,6 +6,8 @@
 #include <inttypes.h>
 #include <fcntl.h>
 #include <drm_fourcc.h>
+#include <sys/mman.h>
+#include <errno.h>
 
 static int modeset_find_crtc(int fd, drmModeRes* res, drmModeConnector* conn) {
     drmModeEncoder* enc;
@@ -166,6 +168,26 @@ int main(void){
         fprintf(stderr, "drmModeCreateDumbBuffer failed\n");
         goto close_fd;
     }
+
+    uint64_t data_offset;
+    res = drmModeMapDumbBuffer(fd, fb_handle, &data_offset);
+    if (res != 0) {
+        fprintf(stderr, "drmModeMapDumbBuffer failed\n");
+        goto free_dumb_buffer;
+    }
+    void* ptr = mmap(NULL, 100*10*4, PROT_WRITE | PROT_READ, MAP_SHARED,
+            fd, data_offset);
+    if (ptr == MAP_FAILED) {
+        fprintf(stderr, "mmap failed:%d\n", errno);
+        goto free_dumb_buffer;
+    }
+    uint32_t* data_ptr = (uint32_t*)((char*)ptr);
+    for (int y = 0; y < 10; y++) {
+        for (int x = 0; x < 100; x++) {
+            data_ptr[y+x] = 0x00ffff00;
+        }
+    }
+
 
     uint32_t fb_id=0;
     uint32_t offset=0;
