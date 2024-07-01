@@ -175,7 +175,7 @@ int main(void){
         fprintf(stderr, "drmModeMapDumbBuffer failed\n");
         goto free_dumb_buffer;
     }
-    void* ptr = mmap(NULL, 100*10*4, PROT_WRITE | PROT_READ, MAP_SHARED,
+    void* ptr = mmap(NULL, pitch*height, PROT_WRITE | PROT_READ, MAP_SHARED,
             fd, data_offset);
     if (ptr == MAP_FAILED) {
         fprintf(stderr, "mmap failed:%d\n", errno);
@@ -184,7 +184,7 @@ int main(void){
     uint32_t* data_ptr = (uint32_t*)((char*)ptr);
     for (int y = 0; y < 10; y++) {
         for (int x = 0; x < 100; x++) {
-            data_ptr[y+x] = 0x00ffff00;
+            data_ptr[y*(pitch/4)+x] = 0x00ffff00;
         }
     }
 
@@ -206,7 +206,33 @@ int main(void){
         goto free_dumb_buffer;
     }
 
-    getchar();
+    long delay = 0;
+    for (int i = 0; i < 600; i++) {
+        drmVBlank dummy = {
+            .request = {
+                .type = DRM_VBLANK_RELATIVE,
+                .sequence = 0
+            }
+        };
+        res = drmWaitVBlank(fd, &dummy);
+        int x = 100;
+        data_ptr[100*(pitch/4) + x] = 0x00010101*delay;
+        data_ptr[100*(pitch/4) + x+1] = 0x00010101*delay;
+        data_ptr[100*(pitch/4) + x+2] = 0x00010101*delay;
+        data_ptr[100*(pitch/4) + x+3] = 0x00010101*delay;
+        drmVBlank v_blank = {
+            .request = {
+                .type = DRM_VBLANK_RELATIVE,
+                .sequence = 1
+            }
+        };
+        res = drmWaitVBlank(fd, &v_blank);
+        if (res != 0) {
+            fprintf(stderr, "drmWaitVBlank failed:%d\n", res);
+        }
+        delay = (v_blank.reply.tval_sec - dummy.reply.tval_sec)*1000000 + v_blank.reply.tval_usec - dummy.reply.tval_usec;
+        delay = (delay*255*60)/1000000;
+    }
 
     res = drmModeSetCrtc(fd, connected_crtc_id, previous_fb_id,
             0, 0, &connector_id, 1, &mode);
