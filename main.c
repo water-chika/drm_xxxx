@@ -9,6 +9,8 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include <threads.h>
+#include <string.h>
+#include <unistd.h>
 
 static int modeset_find_crtc(int fd, drmModeRes* res, drmModeConnector* conn) {
     drmModeEncoder* enc;
@@ -92,7 +94,7 @@ static void modeset_fb_print(drmModeFB* fb) {
     printf("handle: %"PRIu32"\n", fb->handle);
 }
 
-int main(void){
+int main(int argc, const char* argv[]){
     //int fd = drmOpen(NULL, "pci-0000:13:00.0");
     int fd = open("/dev/dri/card1", O_RDWR);
     if (fd == -1) {
@@ -160,61 +162,74 @@ int main(void){
 
     drmModeModeInfo mode = prefered_mode;
     mode.flags = 0;
-    uint32_t fb_handle;
+    uint32_t fb_handles[2];
+    uint32_t fb_ids[2];
+    uint32_t* data_ptrs[2];
     uint32_t pitch;
     uint64_t fb_size;
     uint32_t width=mode.hdisplay, height=mode.vdisplay;
-    res = drmModeCreateDumbBuffer(fd, width, height, 32, 0, &fb_handle, &pitch, &fb_size);
-    if (res != 0) {
-        fprintf(stderr, "drmModeCreateDumbBuffer failed\n");
-        goto close_fd;
-    }
-
-    uint64_t data_offset;
-    res = drmModeMapDumbBuffer(fd, fb_handle, &data_offset);
-    if (res != 0) {
-        fprintf(stderr, "drmModeMapDumbBuffer failed\n");
-        goto free_dumb_buffer;
-    }
-    void* ptr = mmap(NULL, pitch*height, PROT_WRITE | PROT_READ, MAP_SHARED,
-            fd, data_offset);
-    if (ptr == MAP_FAILED) {
-        fprintf(stderr, "mmap failed:%d\n", errno);
-        goto free_dumb_buffer;
-    }
-    uint32_t* data_ptr = (uint32_t*)((char*)ptr);
-    for (int y = 0; y < 100; y++) {
-        for (int x = 0; x < 100; x++) {
-            data_ptr[y*(pitch/4)+x] = 0x00ffff00;
+    for (int i =0; i < 2; i++) {
+        res = drmModeCreateDumbBuffer(fd, width, height, 32, 0, &fb_handles[i], &pitch, &fb_size);
+        if (res != 0) {
+            fprintf(stderr, "drmModeCreateDumbBuffer failed\n");
+            goto close_fd;
         }
-    }
+
+        uint64_t data_offset;
+        res = drmModeMapDumbBuffer(fd, fb_handles[i], &data_offset);
+        if (res != 0) {
+            fprintf(stderr, "drmModeMapDumbBuffer failed\n");
+            goto free_dumb_buffer;
+        }
+        void* ptr = mmap(NULL, pitch*height, PROT_WRITE | PROT_READ, MAP_SHARED,
+                fd, data_offset);
+        if (ptr == MAP_FAILED) {
+            fprintf(stderr, "mmap failed:%d\n", errno);
+            goto free_dumb_buffer;
+        }
+        data_ptrs[i] = (uint32_t*)((char*)ptr);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                data_ptrs[i][y*(pitch/4)+x] = i % 2 == 0 ? 0x00ff0000 : 0x0000ff00;
+            }
+        }
 
 
-    uint32_t fb_id=0;
-    uint32_t offset=0;
-    res = drmModeAddFB(fd, width, height, 24, 32, pitch, fb_handle, &fb_id);
-    if (res != 0) {
-        fprintf(stderr, "drmModeAddFB failed\n");
-        goto free_dumb_buffer;
+        uint32_t fb_id=0;
+        uint32_t offset=0;
+        res = drmModeAddFB(fd, width, height, 24, 32, pitch, fb_handles[i], &fb_ids[i]);
+        if (res != 0) {
+            fprintf(stderr, "drmModeAddFB failed\n");
+            goto free_dumb_buffer;
+        }
+        assert(fb_id != -1);
     }
-    assert(fb_id != -1);
 
     uint32_t connector_id = connected_connector_id;
-    res = drmModeSetCrtc(fd, connected_crtc_id, fb_id,
+    res = drmModeSetCrtc(fd, connected_crtc_id, fb_ids[0],
             0, 0, &connector_id, 1, &mode);
     if (res != 0) {
         fprintf(stderr, "drmModeSetCrtc failed:%d\n", res);
         goto free_dumb_buffer;
     }
 
-    for (int i = 0; i < 1000; i++) {
-        for (int y = 0; y < 100; y++) {
-            for (int x = 0; x < 100; x++) {
-                data_ptr[y*(pitch/4)+x] = 0x00ffffff & ~(data_ptr[y*(pitch/4)+x]);
-            }
-        }
+    for (int i = 0; i < 300; i++) {
         struct timespec sleep_time = {.tv_nsec=1000000};
         thrd_sleep(&sleep_time, NULL);
+
+        uint32_t page_flip_flag = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC;
+        res = drmModePageFlip(fd, connected_crtc_id, fb_ids[i%2], page_flip_flag, NULL);
+        if (res != 0) {
+            fprintf(stderr, "drmModePageFlip failed:%d\n", res);
+        }
+        if (page_flip_flag & DRM_MODE_PAGE_FLIP_EVENT) {
+            uint8_t buf[256];
+            res = read(fd, buf, sizeof(buf));
+            assert(res > 0);
+            struct drm_event_vblank flip_done;
+            memcpy(&flip_done, buf, sizeof(flip_done));
+            //printf("drm_event_vblank.sequence = %" PRIu32 "\n", flip_done.sequence);
+        }
     }
 
     struct timespec sleep_time = {.tv_sec=1};
@@ -224,7 +239,9 @@ int main(void){
             0, 0, &connector_id, 1, &mode);
 
 free_dumb_buffer:
-    drmModeDestroyDumbBuffer(fd, fb_handle);
+    for (int i = 0; i < 2; i++) {
+        drmModeDestroyDumbBuffer(fd, fb_handles[i]);
+    }
     
 close_fd:
     drmClose(fd);
