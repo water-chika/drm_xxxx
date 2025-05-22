@@ -8,6 +8,7 @@
 #include <drm_fourcc.h>
 #include <sys/mman.h>
 #include <errno.h>
+#include <threads.h>
 
 static int modeset_find_crtc(int fd, drmModeRes* res, drmModeConnector* conn) {
     drmModeEncoder* enc;
@@ -182,7 +183,7 @@ int main(void){
         goto free_dumb_buffer;
     }
     uint32_t* data_ptr = (uint32_t*)((char*)ptr);
-    for (int y = 0; y < 10; y++) {
+    for (int y = 0; y < 100; y++) {
         for (int x = 0; x < 100; x++) {
             data_ptr[y*(pitch/4)+x] = 0x00ffff00;
         }
@@ -206,33 +207,18 @@ int main(void){
         goto free_dumb_buffer;
     }
 
-    long delay = 0;
-    for (int i = 0; i < 600; i++) {
-        drmVBlank dummy = {
-            .request = {
-                .type = DRM_VBLANK_RELATIVE,
-                .sequence = 0
+    for (int i = 0; i < 1000; i++) {
+        for (int y = 0; y < 100; y++) {
+            for (int x = 0; x < 100; x++) {
+                data_ptr[y*(pitch/4)+x] = 0x00ffffff & ~(data_ptr[y*(pitch/4)+x]);
             }
-        };
-        res = drmWaitVBlank(fd, &dummy);
-        int x = 100;
-        data_ptr[100*(pitch/4) + x] = 0x00010101*delay;
-        data_ptr[100*(pitch/4) + x+1] = 0x00010101*delay;
-        data_ptr[100*(pitch/4) + x+2] = 0x00010101*delay;
-        data_ptr[100*(pitch/4) + x+3] = 0x00010101*delay;
-        drmVBlank v_blank = {
-            .request = {
-                .type = DRM_VBLANK_RELATIVE,
-                .sequence = 1
-            }
-        };
-        res = drmWaitVBlank(fd, &v_blank);
-        if (res != 0) {
-            fprintf(stderr, "drmWaitVBlank failed:%d\n", res);
         }
-        delay = (v_blank.reply.tval_sec - dummy.reply.tval_sec)*1000000 + v_blank.reply.tval_usec - dummy.reply.tval_usec;
-        delay = (delay*255*60)/1000000;
+        struct timespec sleep_time = {.tv_nsec=1000000};
+        thrd_sleep(&sleep_time, NULL);
     }
+
+    struct timespec sleep_time = {.tv_sec=1};
+    thrd_sleep(&sleep_time, NULL);
 
     res = drmModeSetCrtc(fd, connected_crtc_id, previous_fb_id,
             0, 0, &connector_id, 1, &mode);
