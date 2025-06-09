@@ -48,12 +48,31 @@ const char* modeset_sub_pixel_to_str(drmModeSubPixel sub_pixel) {
     }
 }
 
-static void modeset_connector_print(drmModeConnector* connector) {
+static void modeset_property_print(int fd, uint32_t property_id) {
+    drmModePropertyPtr property = drmModeGetProperty(fd, property_id);
+
+    printf("flags: %"PRIu32 "\n", property->flags);
+    printf("name: %s\n", property->name);
+    printf("count values: %d\n", property->count_values);
+    printf("count enums: %d\n", property->count_enums);
+    printf("count blobs: %d\n", property->count_blobs);
+
+    drmModeFreeProperty(property);
+}
+
+static void modeset_connector_print(int fd, drmModeConnector* connector) {
     printf("connector id: %d\n", connector->connector_id);
     printf("encoder id: %d\n", connector->encoder_id);
     printf("connection: %s\n", modeset_connection_to_str(connector->connection));
     printf("width x height: %"PRIu32"mm x %"PRIu32" mm\n", connector->mmWidth, connector->mmHeight);
     printf("sub pixel: %s\n", modeset_sub_pixel_to_str(connector->subpixel));
+
+    printf("count of properties: %d\n", connector->count_props);
+    for (int i = 0; i < connector->count_props; i++) {
+        printf("property id: %"PRIu32 "\n", connector->props[i]);
+        printf("property value: %"PRIu64 "\n", connector->prop_values[i]);
+        modeset_property_print(fd, connector->props[i]);
+    }
 }
 
 static void modeset_encoder_print(drmModeEncoder* encoder) {
@@ -125,7 +144,7 @@ int main(int argc, const char* argv[]){
         uint32_t connector_id = resources->connectors[i];
         drmModeConnector* connector = drmModeGetConnector(fd, connector_id);
         printf("\nconnector info:\n");
-        modeset_connector_print(connector);
+        modeset_connector_print(fd, connector);
         if (connector->connection == DRM_MODE_CONNECTED){
             connected_connector_id = connector_id;
             connected_encoder_id = connector->encoder_id;
