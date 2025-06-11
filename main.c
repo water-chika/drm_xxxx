@@ -53,8 +53,23 @@ static void modeset_property_print(int fd, uint32_t property_id) {
 
     printf("flags: %"PRIu32 "\n", property->flags);
     printf("name: %s\n", property->name);
-    printf("count values: %d\n", property->count_values);
-    printf("count enums: %d\n", property->count_enums);
+
+    if (property->count_values > 0) {
+        printf("values: ");
+        for (int i = 0; i < property->count_values; i++) {
+            printf("%"PRIu64",", property->values[i]);
+        }
+        printf("\n");
+    }
+
+    if (property->count_enums > 0) {
+        printf("enums: ");
+        for (int i = 0; i < property->count_enums; i++) {
+            printf("%s=%"PRIu64",", property->enums[i].name,property->enums[i].value);
+        }
+        printf("\n");
+    }
+
     printf("count blobs: %d\n", property->count_blobs);
 
     drmModeFreeProperty(property);
@@ -69,9 +84,11 @@ static void modeset_connector_print(int fd, drmModeConnector* connector) {
 
     printf("count of properties: %d\n", connector->count_props);
     for (int i = 0; i < connector->count_props; i++) {
+        printf("\n");
         printf("property id: %"PRIu32 "\n", connector->props[i]);
         printf("property value: %"PRIu64 "\n", connector->prop_values[i]);
         modeset_property_print(fd, connector->props[i]);
+        printf("\n");
     }
 }
 
