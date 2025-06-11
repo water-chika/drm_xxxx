@@ -48,10 +48,42 @@ const char* modeset_sub_pixel_to_str(drmModeSubPixel sub_pixel) {
     }
 }
 
-static void modeset_property_print(int fd, uint32_t property_id) {
+static const char* modeset_property_flag_to_str(uint32_t flag) {
+    switch (flag) {
+        case DRM_MODE_PROP_PENDING:
+            return "pending";
+        case DRM_MODE_PROP_RANGE:
+            return "range";
+        case DRM_MODE_PROP_IMMUTABLE:
+            return "immutable";
+        case DRM_MODE_PROP_ENUM:
+            return "enum";
+        case DRM_MODE_PROP_BLOB:
+            return "blob";
+        case DRM_MODE_PROP_BITMASK:
+            return "bitmask";
+        case DRM_MODE_PROP_OBJECT:
+            return "object";
+        case DRM_MODE_PROP_SIGNED_RANGE:
+            return "signed_range";
+        case DRM_MODE_PROP_ATOMIC:
+            return "atomic";
+        default:
+            return "unknown";
+    }
+}
+
+static void modeset_property_print(int fd, uint32_t property_id, uint32_t property_value) {
     drmModePropertyPtr property = drmModeGetProperty(fd, property_id);
 
-    printf("flags: %"PRIu32 "\n", property->flags);
+    printf("flags: ");
+    for (uint32_t i = 0; i < 32; i++) {
+        if ((1u<<i) & property->flags) {
+            printf("%s | ", modeset_property_flag_to_str(1u<<i));
+        }
+    }
+    printf("\n");
+
     printf("name: %s\n", property->name);
 
     if (property->count_values > 0) {
@@ -70,7 +102,21 @@ static void modeset_property_print(int fd, uint32_t property_id) {
         printf("\n");
     }
 
-    printf("count blobs: %d\n", property->count_blobs);
+    if (property->count_blobs > 0) {
+        printf("count blobs: %d\n", property->count_blobs);
+    }
+
+    if (DRM_MODE_PROP_BLOB & property->flags && property_value != 0) {
+        uint32_t blob_id = property_value;
+        drmModePropertyBlobPtr blob = drmModeGetPropertyBlob(fd, blob_id);
+        printf("blob (length=%"PRIu32"): ", blob->length);
+        uint8_t* data = blob->data;
+        for (uint32_t i = 0; i < blob->length; i++) {
+            printf("%d ", data[i]);
+        }
+        printf("\n");
+        drmModeFreePropertyBlob(blob);
+    }
 
     drmModeFreeProperty(property);
 }
@@ -87,7 +133,7 @@ static void modeset_connector_print(int fd, drmModeConnector* connector) {
         printf("\n");
         printf("property id: %"PRIu32 "\n", connector->props[i]);
         printf("property value: %"PRIu64 "\n", connector->prop_values[i]);
-        modeset_property_print(fd, connector->props[i]);
+        modeset_property_print(fd, connector->props[i], connector->prop_values[i]);
         printf("\n");
     }
 }
