@@ -1,8 +1,17 @@
 #pragma once
 
+// importted library
 #include <cpp_helper.hpp>
-#include <stdexcept>
 
+// C++ std header
+#include <stdexcept>
+#include <iostream>
+
+// Unix C header
+#include <fcntl.h>
+#include <unistd.h>
+
+// DRM header
 #include <libdrm/drm.h>
 #include <libdrm/amdgpu.h>
 
@@ -49,8 +58,10 @@ public:
     amdgpu_device_handle initialize_amdgpu_device() {
         int fd = parent::get_drm_fd();
         amdgpu_device_handle handle;
+        int major_version, minor_version;
         int ret = amdgpu_device_initialize(fd,
                 &major_version, &minor_version, &handle);
+        std::clog << "amdgpu device version: " << major_version << "." << minor_version << std::endl;
         return handle;
     }
     auto get_amdgpu_device() {
@@ -79,10 +90,10 @@ public:
         amdgpu_bo_handle handle;
 
         amdgpu_bo_alloc_request alloc_request{
-            .alloc_size = ?,
-            .phys_alignment = ?,
-            .preferred_heap = ?,
-            .flags = ?,
+            .alloc_size = 0,
+            .phys_alignment = 0,
+            .preferred_heap = 0,
+            .flags = 0,
         };
 
         amdgpu_bo_alloc(dev, &alloc_request, &handle);
