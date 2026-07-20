@@ -39,9 +39,57 @@ template<typename T>
 class add_amdgpu_device : public T {
 public:
     using parent = T;
-    add_amdgpu_device(const configure auto& conf) : parent{conf} {
+    add_amdgpu_device(const configure auto& conf) : parent{conf},
+        device_handle{initialize_amdgpu_device()}
+    {
+    }
+    ~add_amdgpu_device() {
+        amdgpu_device_deinitialize(device_handle);
+    }
+    amdgpu_device_handle initialize_amdgpu_device() {
+        int fd = parent::get_drm_fd();
+        amdgpu_device_handle handle;
+        int ret = amdgpu_device_initialize(fd,
+                &major_version, &minor_version, &handle);
+        return handle;
+    }
+    auto get_amdgpu_device() {
+        return device_handle;
     }
 private:
     amdgpu_device_handle device_handle;
+};
+template<typename T>
+class cache_heap_infos : public T {
+public:
+    using parent = T;
+};
+template<typename T>
+class add_amdgpu_bo : public T {
+public:
+    using parent = T;
+    add_amdgpu_bo(const configure auto& conf) : parent{conf},
+        bo_handle{allocate_amdgpu_bo()}
+    {}
+    ~add_amdgpu_bo() {
+        amdgpu_bo_free(bo_handle);
+    }
+    auto allocate_amdgpu_bo() {
+        auto dev = parent::get_amdgpu_device();
+        amdgpu_bo_handle handle;
+
+        amdgpu_bo_alloc_request alloc_request{
+            .alloc_size = ?,
+            .phys_alignment = ?,
+            .preferred_heap = ?,
+            .flags = ?,
+        };
+
+        amdgpu_bo_alloc(dev, &alloc_request, &handle);
+
+        return handle;
+    }
+private:
+    amdgpu_bo_handle bo_handle;
 };
 }
