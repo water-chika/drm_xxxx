@@ -190,7 +190,7 @@ int main(int argc, const char* argv[]){
 
     modeset_resources_print(resources);
 
-    uint32_t connected_connector_id;
+    uint32_t connected_connector_id = 0;
     uint32_t connected_encoder_id;
     uint32_t connected_crtc_id;
     drmModeModeInfo prefered_mode;
@@ -208,7 +208,7 @@ int main(int argc, const char* argv[]){
         drmModeConnector* connector = drmModeGetConnector(fd, connector_id);
         printf("\nconnector info:\n");
         modeset_connector_print(fd, connector);
-        if (connector->connection == DRM_MODE_CONNECTED){
+        if (connected_connector_id == 0 && connector->connection == DRM_MODE_CONNECTED){
             connected_connector_id = connector_id;
             connected_encoder_id = connector->encoder_id;
             prefered_mode = connector->modes[0];
