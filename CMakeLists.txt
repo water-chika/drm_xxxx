@@ -11,6 +11,9 @@ target_link_libraries(drm_helper PUBLIC
 	cpp_helper
     drm
 )
+target_include_directories(drm_helper PUBLIC
+    /usr/include/drm
+)
 
 add_executable(amdgpu_drm_test
     amdgpu_test.cpp
