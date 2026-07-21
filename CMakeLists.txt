@@ -22,6 +22,7 @@ add_executable(drm_test
 target_link_libraries(drm_test PUBLIC
     drm_helper
 )
+target_compile_features(drm_test PUBLIC cxx_std_20)
 
 add_executable(amdgpu_drm_test
     amdgpu_test.cpp
@@ -29,4 +30,5 @@ add_executable(amdgpu_drm_test
 target_link_libraries(amdgpu_drm_test PUBLIC
 	drm_helper
 )
+target_compile_features(amdgpu_drm_test PUBLIC cxx_std_20)
 

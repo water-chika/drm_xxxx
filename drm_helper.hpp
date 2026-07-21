@@ -123,7 +123,7 @@ static void modeset_property_print(int fd, uint32_t property_id, uint32_t proper
     if (property->count_values > 0) {
         printf("values: ");
         for (int i = 0; i < property->count_values; i++) {
-            printf("%" PRIu64 ",", property->values[i]);
+            std::cout << std::format("{},", property->values[i]);
         }
         printf("\n");
     }
@@ -131,7 +131,7 @@ static void modeset_property_print(int fd, uint32_t property_id, uint32_t proper
     if (property->count_enums > 0) {
         printf("enums: ");
         for (int i = 0; i < property->count_enums; i++) {
-            printf("%s=%" PRIu64 ",", property->enums[i].name,property->enums[i].value);
+            std::cout << std::format("{}={},", property->enums[i].name, property->enums[i].value);
         }
         printf("\n");
     }
@@ -143,7 +143,7 @@ static void modeset_property_print(int fd, uint32_t property_id, uint32_t proper
     if (DRM_MODE_PROP_BLOB & property->flags && property_value != 0) {
         uint32_t blob_id = property_value;
         drmModePropertyBlobPtr blob = drmModeGetPropertyBlob(fd, blob_id);
-        printf("blob (length=%"PRIu32"): ", blob->length);
+        std::cout << std::format("blob (length={}): ", blob->length);
         uint8_t* data = reinterpret_cast<uint8_t*>(blob->data);
         for (uint32_t i = 0; i < blob->length; i++) {
             printf("%d ", data[i]);
@@ -159,14 +159,14 @@ auto modeset_connector_print(int fd, drmModeConnector* connector) {
     printf("connector id: %d\n", connector->connector_id);
     printf("encoder id: %d\n", connector->encoder_id);
     printf("connection: %s\n", modeset_connection_to_str(connector->connection));
-    printf("width x height: %"PRIu32"mm x %"PRIu32" mm\n", connector->mmWidth, connector->mmHeight);
+    std::cout << std::format("width x height: %{}mm x %{}mm\n", connector->mmWidth, connector->mmHeight);
     printf("sub pixel: %s\n", modeset_sub_pixel_to_str(connector->subpixel));
 
     printf("count of properties: %d\n", connector->count_props);
     for (int i = 0; i < connector->count_props; i++) {
         printf("\n");
-        printf("property id: %"PRIu32 "\n", connector->props[i]);
-        printf("property value: %"PRIu64 "\n", connector->prop_values[i]);
+        std::cout << std::format("property id: {}\n", connector->props[i]);
+        std::cout << std::format("property value: {}\n", connector->prop_values[i]);
         modeset_property_print(fd, connector->props[i], connector->prop_values[i]);
         printf("\n");
     }
@@ -181,33 +181,33 @@ static void modeset_encoder_print(drmModeEncoder* encoder) {
 
 static void modeset_mode_info_print(drmModeModeInfo* mode) {
     printf("clock: %d\n", mode->clock);
-    printf("hdisplay,hsync_start,hsync_end,htotal,hskew: %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16"\n",
+    std::cout << std::format("hdisplay,hsync_start,hsync_end,htotal,hskew: {}, {}, {}, {}, {}\n",
             mode->hdisplay, mode->hsync_start, mode->hsync_end, mode->htotal, mode->hskew);
-    printf("vdisplay,vsync_start,vsync_end,vtotal,vscan: %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16"\n",
+    std::cout << std::format("vdisplay,vsync_start,vsync_end,vtotal,vscan: {}, {}, {}, {}, {}\n",
             mode->vdisplay, mode->vsync_start, mode->vsync_end, mode->vtotal, mode->vscan);
-    printf("vrefresh: %"PRIu32"\n", mode->vrefresh);
-    printf("flags: %"PRIx32"\n", mode->flags);
-    printf("type: %"PRIu32"\n", mode->type);
+    std::cout << std::format("vrefresh: {}\n", mode->vrefresh);
+    std::cout << std::format("flags: {}\n", mode->flags);
+    std::cout << std::format("type: {}\n", mode->type);
     printf("name: %s\n", mode->name);
 }
 
 static void modeset_crtc_print(drmModeCrtc* crtc) {
     printf("crtc id: %d\n", crtc->crtc_id);
     printf("buffer id: %d\n", crtc->buffer_id);
-    printf("(x,y): (%"PRIu32",%"PRIu32")\n", crtc->x, crtc->y);
-    printf("width x height: %"PRIu32"x%"PRIu32"\n", crtc->width, crtc->height);
+    std::cout << std::format("(x,y): ({},{})\n", crtc->x, crtc->y);
+    std::cout << std::format("width x height: {}x{}\n", crtc->width, crtc->height);
     printf("mode valid: %d\n", crtc->mode_valid);
     modeset_mode_info_print(&crtc->mode);
     printf("gamma size: %d\n", crtc->gamma_size);
 }
 
 static void modeset_fb_print(drmModeFB* fb) {
-    printf("fb id: %"PRIu32"\n", fb->fb_id);
-    printf("width x height: %"PRIu32"x%"PRIu32"\n", fb->width, fb->height);
-    printf("pitch: %"PRIu32"\n", fb->pitch);
-    printf("bpp: %"PRIu32"\n", fb->bpp);
-    printf("depth: %"PRIu32"\n", fb->depth);
-    printf("handle: %"PRIu32"\n", fb->handle);
+    std::cout << std::format("fb id: {}\n", fb->fb_id);
+    std::cout << std::format("width x height: {}x{}\n", fb->width, fb->height);
+    std::cout << std::format("pitch: {}\n", fb->pitch);
+    std::cout << std::format("bpp: {}\n", fb->bpp);
+    std::cout << std::format("depth: {}\n", fb->depth);
+    std::cout << std::format("handle: {}\n", fb->handle);
 }
 
 template<typename T>
