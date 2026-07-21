@@ -9,6 +9,7 @@ add_library(drm_helper
 
 target_link_libraries(drm_helper PUBLIC
 	cpp_helper
+    drm
 )
 
 add_executable(amdgpu_drm_test
@@ -16,5 +17,6 @@ add_executable(amdgpu_drm_test
 )
 target_link_libraries(amdgpu_drm_test PUBLIC
 	drm_helper
+    drm_amdgpu
 )
 

@@ -58,7 +58,7 @@ public:
     amdgpu_device_handle initialize_amdgpu_device() {
         int fd = parent::get_drm_fd();
         amdgpu_device_handle handle;
-        int major_version, minor_version;
+        uint32_t major_version, minor_version;
         int ret = amdgpu_device_initialize(fd,
                 &major_version, &minor_version, &handle);
         std::clog << "amdgpu device version: " << major_version << "." << minor_version << std::endl;
