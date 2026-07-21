@@ -14,6 +14,7 @@
 // DRM header
 #include <libdrm/drm.h>
 #include <libdrm/amdgpu.h>
+#include <xf86drm.h>
 
 namespace drm_helper {
 
@@ -29,13 +30,13 @@ public:
     {
     }
     ~add_drm_fd() {
-        close(fd);
+        drmClose(fd);
     }
     auto get_drm_fd() {
         return fd;
     }
     static int open_drm() {
-        int fd = open("/dev/dri/card1", O_RDWR);
+        int fd = drmOpenWithType("amdgpu", nullptr, DRM_NODE_PRIMARY);
         if (fd == -1) {
             throw std::runtime_error{"faild to open drm device"};
         }
@@ -57,10 +58,13 @@ public:
     }
     amdgpu_device_handle initialize_amdgpu_device() {
         int fd = parent::get_drm_fd();
-        amdgpu_device_handle handle;
-        uint32_t major_version, minor_version;
+        amdgpu_device_handle handle{};
+        uint32_t major_version{}, minor_version{};
         int ret = amdgpu_device_initialize(fd,
                 &major_version, &minor_version, &handle);
+        if (ret < 0) {
+            throw std::runtime_error{"amdgpu device initialize failed"};
+        }
         std::clog << "amdgpu device version: " << major_version << "." << minor_version << std::endl;
         return handle;
     }
