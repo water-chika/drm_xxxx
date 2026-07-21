@@ -6,6 +6,8 @@
 // C++ std header
 #include <stdexcept>
 #include <iostream>
+#include <format>
+#include <cinttypes>
 
 // Unix C header
 #include <fcntl.h>
@@ -15,6 +17,7 @@
 #include <libdrm/drm.h>
 #include <libdrm/amdgpu.h>
 #include <xf86drm.h>
+#include <xf86drmMode.h>
 
 namespace drm_helper {
 
@@ -45,6 +48,161 @@ public:
 private:
     int fd;
 };
+
+std::ostream& operator<<(std::ostream& out, const drmModeRes& res) {
+    out << "fbs count: " << res.count_fbs << std::endl;
+    out << "crtcs count: " << res.count_crtcs << std::endl;
+    out << "connectors count: " << res.count_connectors << std::endl;
+    out << "encoders count: " << res.count_encoders << std::endl;
+    out << std::format("min res: {}x{}", res.min_width, res.min_height) << std::endl;
+    out << std::format("max res: {}x{}", res.max_width, res.max_height) << std::endl;
+}
+const char* modeset_connection_to_str(drmModeConnection connection) {
+    switch (connection) {
+        case DRM_MODE_CONNECTED: return "connected";
+        case DRM_MODE_DISCONNECTED: return "disconnected";
+        case DRM_MODE_UNKNOWNCONNECTION: return "unknownconnection";
+        default: return "unkown value";
+    }
+}
+const char* modeset_sub_pixel_to_str(drmModeSubPixel sub_pixel) {
+    switch (sub_pixel) {
+        case DRM_MODE_SUBPIXEL_UNKNOWN: return "unknown";
+        case DRM_MODE_SUBPIXEL_HORIZONTAL_RGB: return "horizontal RGB";
+        case DRM_MODE_SUBPIXEL_HORIZONTAL_BGR: return "horizontal BGR";
+        case DRM_MODE_SUBPIXEL_VERTICAL_RGB: return "vertical RGB";
+        case DRM_MODE_SUBPIXEL_VERTICAL_BGR: return "vertical BGR";
+        case DRM_MODE_SUBPIXEL_NONE: return "none";
+    }
+}
+static const char* modeset_property_flag_to_str(uint32_t flag) {
+    switch (flag) {
+        case DRM_MODE_PROP_PENDING:
+            return "pending";
+        case DRM_MODE_PROP_RANGE:
+            return "range";
+        case DRM_MODE_PROP_IMMUTABLE:
+            return "immutable";
+        case DRM_MODE_PROP_ENUM:
+            return "enum";
+        case DRM_MODE_PROP_BLOB:
+            return "blob";
+        case DRM_MODE_PROP_BITMASK:
+            return "bitmask";
+        case DRM_MODE_PROP_OBJECT:
+            return "object";
+        case DRM_MODE_PROP_SIGNED_RANGE:
+            return "signed_range";
+        case DRM_MODE_PROP_ATOMIC:
+            return "atomic";
+        default:
+            return "unknown";
+    }
+}
+
+static void modeset_property_print(int fd, uint32_t property_id, uint32_t property_value) {
+    drmModePropertyPtr property = drmModeGetProperty(fd, property_id);
+
+    printf("flags: ");
+    for (uint32_t i = 0; i < 32; i++) {
+        if ((1u<<i) & property->flags) {
+            printf("%s | ", modeset_property_flag_to_str(1u<<i));
+        }
+    }
+    printf("\n");
+
+    printf("name: %s\n", property->name);
+
+    if (property->count_values > 0) {
+        printf("values: ");
+        for (int i = 0; i < property->count_values; i++) {
+            printf("%" PRIu64 ",", property->values[i]);
+        }
+        printf("\n");
+    }
+
+    if (property->count_enums > 0) {
+        printf("enums: ");
+        for (int i = 0; i < property->count_enums; i++) {
+            printf("%s=%" PRIu64 ",", property->enums[i].name,property->enums[i].value);
+        }
+        printf("\n");
+    }
+
+    if (property->count_blobs > 0) {
+        printf("count blobs: %d\n", property->count_blobs);
+    }
+
+    if (DRM_MODE_PROP_BLOB & property->flags && property_value != 0) {
+        uint32_t blob_id = property_value;
+        drmModePropertyBlobPtr blob = drmModeGetPropertyBlob(fd, blob_id);
+        printf("blob (length=%"PRIu32"): ", blob->length);
+        uint8_t* data = reinterpret_cast<uint8_t*>(blob->data);
+        for (uint32_t i = 0; i < blob->length; i++) {
+            printf("%d ", data[i]);
+        }
+        printf("\n");
+        drmModeFreePropertyBlob(blob);
+    }
+
+    drmModeFreeProperty(property);
+}
+
+auto modeset_connector_print(int fd, drmModeConnector* connector) {
+    printf("connector id: %d\n", connector->connector_id);
+    printf("encoder id: %d\n", connector->encoder_id);
+    printf("connection: %s\n", modeset_connection_to_str(connector->connection));
+    printf("width x height: %"PRIu32"mm x %"PRIu32" mm\n", connector->mmWidth, connector->mmHeight);
+    printf("sub pixel: %s\n", modeset_sub_pixel_to_str(connector->subpixel));
+
+    printf("count of properties: %d\n", connector->count_props);
+    for (int i = 0; i < connector->count_props; i++) {
+        printf("\n");
+        printf("property id: %"PRIu32 "\n", connector->props[i]);
+        printf("property value: %"PRIu64 "\n", connector->prop_values[i]);
+        modeset_property_print(fd, connector->props[i], connector->prop_values[i]);
+        printf("\n");
+    }
+}
+
+static void modeset_encoder_print(drmModeEncoder* encoder) {
+    printf("encoder id: %d\n", encoder->encoder_id);
+    printf("crtc id: %d\n", encoder->crtc_id);
+    printf("possible crtcs: %x\n", encoder->possible_crtcs);
+    printf("possible clones: %x\n", encoder->possible_clones);
+}
+
+static void modeset_mode_info_print(drmModeModeInfo* mode) {
+    printf("clock: %d\n", mode->clock);
+    printf("hdisplay,hsync_start,hsync_end,htotal,hskew: %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16"\n",
+            mode->hdisplay, mode->hsync_start, mode->hsync_end, mode->htotal, mode->hskew);
+    printf("vdisplay,vsync_start,vsync_end,vtotal,vscan: %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16", %"PRIu16"\n",
+            mode->vdisplay, mode->vsync_start, mode->vsync_end, mode->vtotal, mode->vscan);
+    printf("vrefresh: %"PRIu32"\n", mode->vrefresh);
+    printf("flags: %"PRIx32"\n", mode->flags);
+    printf("type: %"PRIu32"\n", mode->type);
+    printf("name: %s\n", mode->name);
+}
+
+static void modeset_crtc_print(drmModeCrtc* crtc) {
+    printf("crtc id: %d\n", crtc->crtc_id);
+    printf("buffer id: %d\n", crtc->buffer_id);
+    printf("(x,y): (%"PRIu32",%"PRIu32")\n", crtc->x, crtc->y);
+    printf("width x height: %"PRIu32"x%"PRIu32"\n", crtc->width, crtc->height);
+    printf("mode valid: %d\n", crtc->mode_valid);
+    modeset_mode_info_print(&crtc->mode);
+    printf("gamma size: %d\n", crtc->gamma_size);
+}
+
+static void modeset_fb_print(drmModeFB* fb) {
+    printf("fb id: %"PRIu32"\n", fb->fb_id);
+    printf("width x height: %"PRIu32"x%"PRIu32"\n", fb->width, fb->height);
+    printf("pitch: %"PRIu32"\n", fb->pitch);
+    printf("bpp: %"PRIu32"\n", fb->bpp);
+    printf("depth: %"PRIu32"\n", fb->depth);
+    printf("handle: %"PRIu32"\n", fb->handle);
+}
+
 template<typename T>
 class add_amdgpu_device : public T {
 public:
@@ -75,9 +233,51 @@ private:
     amdgpu_device_handle device_handle;
 };
 template<typename T>
+class cache_gpu_info : public T {
+public:
+    using parent = T;
+    cache_gpu_info(const configure auto& conf) : parent{conf},
+        info{query_gpu_info()}
+    {}
+    auto query_gpu_info() {
+        amdgpu_gpu_info info{};
+        auto dev = parent::get_amdgpu_device();
+        amdgpu_query_gpu_info(dev, &info);
+        std::cout << "asic id: " << info.asic_id << std::endl;
+        std::cout << "chip rev: " << info.chip_rev << std::endl;
+        std::cout << "family id: " << info.family_id << std::endl;
+        return info;
+    }
+private:
+    amdgpu_gpu_info info;
+};
+template<typename T>
 class cache_heap_infos : public T {
 public:
     using parent = T;
+    cache_heap_infos(const configure auto& conf) : parent{conf},
+        infos{query_heap_infos()}
+    {}
+    auto query_heap_infos() {
+        std::vector<amdgpu_heap_info> infos;
+        auto dev = parent::get_amdgpu_device();
+        for (int i = 0; ;i++) {
+            infos.push_back({});
+            int ret = amdgpu_query_heap_info(dev, i, 0, &infos.back());
+            if (ret < 0) {
+                infos.pop_back();
+                break;
+            }
+            else {
+                auto& info = infos.back();
+                std::cout << "Heap " << i << ": " << info.heap_size
+                    << ", " << info.heap_usage << ", " << info.max_allocation << std::endl;
+            }
+        }
+        return infos;
+    }
+private:
+    std::vector<amdgpu_heap_info> infos;
 };
 template<typename T>
 class add_amdgpu_bo : public T {
@@ -94,15 +294,21 @@ public:
         amdgpu_bo_handle handle;
 
         amdgpu_bo_alloc_request alloc_request{
-            .alloc_size = 0,
-            .phys_alignment = 0,
-            .preferred_heap = 0,
+            .alloc_size = 3840*2160*4*2,
+            .phys_alignment = 4096,
+            .preferred_heap = 1,
             .flags = 0,
         };
 
-        amdgpu_bo_alloc(dev, &alloc_request, &handle);
+        int ret = amdgpu_bo_alloc(dev, &alloc_request, &handle);
+        if (ret < 0) {
+            throw std::runtime_error{"amdgpu_bo_alloc failed"};
+        }
 
         return handle;
+    }
+    auto get_amdgpu_bo() {
+        return bo_handle;
     }
 private:
     amdgpu_bo_handle bo_handle;
