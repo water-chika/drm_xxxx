@@ -2,7 +2,15 @@
 
 using namespace drm_helper;
 
-int main() {
+struct conf : public cpp_helper::empty_configure {
+    const char* drm_device_path;
+};
+
+int main(int argc, const char** argv) {
+    if (argc < 2) {
+        throw std::runtime_error{std::format("Usage: {} <drm_device_path>", argc > 0 ? argv[0] : "test")};
+    }
+    auto drm_device_path = argv[1];
     auto app =
         add_amdgpu_bo<
         cache_heap_infos<
@@ -11,6 +19,6 @@ int main() {
         add_drm_fd<
         cpp_helper::empty_class
         >>>>>
-        {cpp_helper::empty_configure{}};
+        {conf{.drm_device_path = drm_device_path}};
     return 0;
 }

@@ -24,22 +24,29 @@ namespace drm_helper {
 using cpp_helper::configure;
 using cpp_helper::empty_configure;
 
+template<typename Conf>
+concept contain_drm_device_path = requires(Conf c) {
+    c.drm_device_path;
+};
+
 template<typename T>
 class add_drm_fd : public T {
 public:
     using parent = T;
-    add_drm_fd(const configure auto& conf) : parent{conf},
-        fd{open_drm()}
+    template<configure Conf>
+        requires contain_drm_device_path<Conf>
+    add_drm_fd(const Conf& conf) : parent{conf},
+        fd{open_drm(conf.drm_device_path)}
     {
     }
     ~add_drm_fd() {
-        drmClose(fd);
+        close(fd);
     }
     auto get_drm_fd() {
         return fd;
     }
-    static int open_drm() {
-        int fd = drmOpenWithType("amdgpu", nullptr, DRM_NODE_PRIMARY);
+    static int open_drm(const char* drm_device_path) {
+        int fd = open(drm_device_path, O_RDWR);
         if (fd == -1) {
             throw std::runtime_error{"faild to open drm device"};
         }

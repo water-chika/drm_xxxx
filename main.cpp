@@ -87,9 +87,9 @@ public:
         uint32_t fb_handles[2];
         uint32_t fb_ids[2];
         uint32_t* data_ptrs[2];
-        uint32_t pitch;
         uint64_t fb_size;
         uint32_t width=mode.hdisplay, height=mode.vdisplay;
+        uint32_t pitch=width*sizeof(uint32_t);
         for (int i =0; i < 2; i++) {
             uint32_t fb_id=0;
             uint32_t offset=0;
@@ -139,7 +139,15 @@ public:
 private:
 };
 
+struct conf : public cpp_helper::empty_configure {
+    const char* drm_device_path;
+};
+
 int main(int argc, const char* argv[]){
+    if (argc < 2) {
+        throw std::runtime_error{std::format("Usage: {} <drm_device_path>", argc > 0 ? argv[0] : "test")};
+    }
+    auto drm_device_path = argv[1];
     auto drm_test =
         add_drm_test<
         add_amdgpu_bo<
@@ -147,7 +155,7 @@ int main(int argc, const char* argv[]){
         add_drm_fd<
         cpp_helper::empty_class
         >>>>
-        {cpp_helper::empty_configure{}};
+        {conf{.drm_device_path = drm_device_path}};
     drm_test.test();
     return 0;
 }
