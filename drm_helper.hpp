@@ -210,6 +210,7 @@ std::ostream& operator<<(std::ostream& out, const drmModeRes& res) {
     out << "encoders count: " << res.count_encoders << std::endl;
     out << std::format("min res: {}x{}", res.min_width, res.min_height) << std::endl;
     out << std::format("max res: {}x{}", res.max_width, res.max_height) << std::endl;
+    return out;
 }
 const char* modeset_connection_to_str(drmModeConnection connection) {
     switch (connection) {
@@ -452,7 +453,7 @@ public:
         amdgpu_bo_alloc_request alloc_request{
             .alloc_size = alloc_size,
             .phys_alignment = 4096,
-            .preferred_heap = AMDGPU_GEM_DOMAIN_VRAM | AMDGPU_GEM_DOMAIN_GTT,
+            .preferred_heap = AMDGPU_GEM_DOMAIN_VRAM,
             .flags = AMDGPU_GEM_CREATE_CPU_GTT_USWC,
         };
 
