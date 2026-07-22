@@ -16,6 +16,7 @@
 // DRM header
 #include <libdrm/drm.h>
 #include <libdrm/amdgpu.h>
+#include <libdrm/amdgpu_drm.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
@@ -301,10 +302,10 @@ public:
         amdgpu_bo_handle handle;
 
         amdgpu_bo_alloc_request alloc_request{
-            .alloc_size = 3840*2160*4*2,
+            .alloc_size = 3980*2160*sizeof(uint32_t),
             .phys_alignment = 4096,
-            .preferred_heap = 1,
-            .flags = 0,
+            .preferred_heap = AMDGPU_GEM_DOMAIN_VRAM | AMDGPU_GEM_DOMAIN_GTT,
+            .flags = AMDGPU_GEM_CREATE_CPU_GTT_USWC,
         };
 
         int ret = amdgpu_bo_alloc(dev, &alloc_request, &handle);

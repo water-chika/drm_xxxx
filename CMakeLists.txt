@@ -10,6 +10,7 @@ add_library(drm_helper
 target_link_libraries(drm_helper PUBLIC
 	cpp_helper
     drm
+    hip_helper
     drm_amdgpu
 )
 target_include_directories(drm_helper PUBLIC

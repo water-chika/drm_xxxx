@@ -14,6 +14,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <hip_helper.hpp>
+
 using namespace drm_helper;
 
 template<typename T>
@@ -81,32 +83,40 @@ public:
             fprintf(stderr, "drmSetMaster failed\n");
         }
         struct timespec sleep_time = {.tv_sec=1};
-
         drmModeModeInfo mode = prefered_mode;
-        mode.flags = 0;
-        uint32_t fb_handles[2];
-        uint32_t fb_ids[2];
-        uint32_t* data_ptrs[2];
-        uint64_t fb_size;
         uint32_t width=mode.hdisplay, height=mode.vdisplay;
+
+        uint32_t dma_buf_fd{};
+        int ret = amdgpu_bo_export(parent::get_amdgpu_bo(), amdgpu_bo_handle_type_dma_buf_fd, &dma_buf_fd);
+        if (ret < 0) {
+            throw std::runtime_error{"amdgpu_bo_export failed"};
+        }
+        hipExternalMemoryHandleDesc desc = {};
+        desc.size = width*height*sizeof(uint32_t);
+        desc.type = hipExternalMemoryHandleTypeOpaqueFd;
+        desc.handle.fd = dma_buf_fd;
+        hipExternalMemory_t hip_memory{};
+        ret = hipImportExternalMemory(&hip_memory, &desc);
+        if (ret != hipSuccess) {
+            throw std::runtime_error{std::format("hipImportExternalMemory failed: {}", ret)};
+        }
+
+        mode.flags = 0;
+        uint32_t fb_handle{};
+        uint32_t fb_id=0;
+        uint64_t fb_size = width*height*sizeof(uint32_t);
         uint32_t pitch=width*sizeof(uint32_t);
-        for (int i =0; i < 2; i++) {
-            uint32_t fb_id=0;
-            uint32_t offset=0;
-            uint32_t fb_handle{};
-            int ret = amdgpu_bo_export(parent::get_amdgpu_bo(), amdgpu_bo_handle_type_kms, &fb_handle);
-            if (ret < 0) {
-                throw std::runtime_error{"amdgpu_bo_export failed"};
-            }
-            res = drmModeAddFB(fd, width, height, 24, 32, pitch, fb_handle, &fb_ids[i]);
-            if (res != 0) {
-                std::cerr << std::format("drmModAddFB failed: {}", res) << std::endl;
-            }
-            assert(fb_id != -1);
+        ret = amdgpu_bo_export(parent::get_amdgpu_bo(), amdgpu_bo_handle_type_kms, &fb_handle);
+        if (ret < 0) {
+            throw std::runtime_error{"amdgpu_bo_export failed"};
+        }
+        res = drmModeAddFB(fd, width, height, 24, 32, pitch, fb_handle, &fb_id);
+        if (res != 0) {
+            std::cerr << std::format("drmModAddFB failed: {}", res) << std::endl;
         }
 
         uint32_t connector_id = connected_connector_id;
-        res = drmModeSetCrtc(fd, connected_crtc_id, fb_ids[0],
+        res = drmModeSetCrtc(fd, connected_crtc_id, fb_id,
                 0, 0, &connector_id, 1, &mode);
         if (res != 0) {
             fprintf(stderr, "drmModeSetCrtc failed:%d\n", res);
@@ -117,7 +127,7 @@ public:
             thrd_sleep(&sleep_time, NULL);
 
             uint32_t page_flip_flag = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC;
-            res = drmModePageFlip(fd, connected_crtc_id, fb_ids[i%2], page_flip_flag, NULL);
+            res = drmModePageFlip(fd, connected_crtc_id, fb_id, page_flip_flag, NULL);
             if (res != 0) {
                 fprintf(stderr, "drmModePageFlip failed:%d\n", res);
             }
