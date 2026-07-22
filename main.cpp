@@ -19,6 +19,19 @@
 using namespace drm_helper;
 
 template<typename T>
+class set_bo_alloc_size : public T {
+public:
+    using parent = T;
+    set_bo_alloc_size(const configure auto& conf) : parent{conf} {
+    }
+
+    auto get_bo_alloc_size() {
+        auto mode = parent::get_drm_mode();
+        return mode->hdisplay*mode->vdisplay*sizeof(uint32_t);
+    }
+};
+
+template<typename T>
 class add_drm_test : public T {
 public:
     using parent = T;
@@ -27,64 +40,20 @@ public:
     void test() {
         int fd = parent::get_drm_fd();
         int res= 0;
-        drmModeRes* resources = drmModeGetResources(fd);
-        assert(resources != NULL);
+        drmModeRes* resources = parent::get_drm_resources();
 
-        std::cout << resources;
+        auto connector = parent::get_drm_connector();
 
-        uint32_t connected_connector_id = 0;
-        uint32_t connected_encoder_id;
-        uint32_t connected_crtc_id;
-        drmModeModeInfo prefered_mode;
-        uint32_t previous_fb_id;
-
-        for (int i = 0; i < resources->count_fbs; i++) {
-            uint32_t fb_id = resources->fbs[i];
-            drmModeFB* fb = drmModeGetFB(fd, fb_id);
-            printf("-----fb info-----");
-            modeset_fb_print(fb);
-        }
-
-        for (int i = 0; i < resources->count_connectors; i++) {
-            uint32_t connector_id = resources->connectors[i];
-            drmModeConnector* connector = drmModeGetConnector(fd, connector_id);
-            printf("\nconnector info:\n");
-            modeset_connector_print(fd, connector);
-            if (connected_connector_id == 0 && connector->connection == DRM_MODE_CONNECTED){
-                connected_connector_id = connector_id;
-                connected_encoder_id = connector->encoder_id;
-                prefered_mode = connector->modes[0];
-                assert(connector->count_modes > 0);
-            }
-        }
-
-        for (int i = 0; i < resources->count_encoders; i++) {
-            uint32_t encoder_id = resources->encoders[i];
-            drmModeEncoder* encoder = drmModeGetEncoder(fd, encoder_id);
-            printf("\nencoder info\n");
-            modeset_encoder_print(encoder);
-            if (encoder_id == connected_encoder_id) {
-                connected_crtc_id = encoder->crtc_id;
-            }
-        }
-
-        for (int i = 0; i < resources->count_crtcs; i++) {
-            uint32_t crtc_id = resources->crtcs[i];
-            drmModeCrtc* crtc = drmModeGetCrtc(fd, crtc_id);
-            printf("\n-----crtc info-----\n");
-            modeset_crtc_print(crtc);
-            if (crtc_id == connected_crtc_id) {
-                previous_fb_id = crtc->buffer_id;
-            }
-        }
+        auto encoder = parent::get_drm_encoder();
+        uint32_t connected_crtc_id = encoder->crtc_id;
 
         res = drmSetMaster(fd);
         if (res != 0) {
             fprintf(stderr, "drmSetMaster failed\n");
         }
         struct timespec sleep_time = {.tv_sec=1};
-        drmModeModeInfo mode = prefered_mode;
-        uint32_t width=mode.hdisplay, height=mode.vdisplay;
+        auto mode = parent::get_drm_mode();
+        uint32_t width=mode->hdisplay, height=mode->vdisplay;
 
         uint32_t dma_buf_fd{};
         int ret = amdgpu_bo_export(parent::get_amdgpu_bo(), amdgpu_bo_handle_type_dma_buf_fd, &dma_buf_fd);
@@ -101,50 +70,7 @@ public:
             throw std::runtime_error{std::format("hipImportExternalMemory failed: {}", ret)};
         }
 
-        mode.flags = 0;
-        uint32_t fb_handle{};
-        uint32_t fb_id=0;
-        uint64_t fb_size = width*height*sizeof(uint32_t);
-        uint32_t pitch=width*sizeof(uint32_t);
-        ret = amdgpu_bo_export(parent::get_amdgpu_bo(), amdgpu_bo_handle_type_kms, &fb_handle);
-        if (ret < 0) {
-            throw std::runtime_error{"amdgpu_bo_export failed"};
-        }
-        res = drmModeAddFB(fd, width, height, 24, 32, pitch, fb_handle, &fb_id);
-        if (res != 0) {
-            std::cerr << std::format("drmModAddFB failed: {}", res) << std::endl;
-        }
-
-        uint32_t connector_id = connected_connector_id;
-        res = drmModeSetCrtc(fd, connected_crtc_id, fb_id,
-                0, 0, &connector_id, 1, &mode);
-        if (res != 0) {
-            fprintf(stderr, "drmModeSetCrtc failed:%d\n", res);
-        }
-
-        for (int i = 0; i < 300; i++) {
-            struct timespec sleep_time = {.tv_nsec=1000000};
-            thrd_sleep(&sleep_time, NULL);
-
-            uint32_t page_flip_flag = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC;
-            res = drmModePageFlip(fd, connected_crtc_id, fb_id, page_flip_flag, NULL);
-            if (res != 0) {
-                fprintf(stderr, "drmModePageFlip failed:%d\n", res);
-            }
-            if (page_flip_flag & DRM_MODE_PAGE_FLIP_EVENT) {
-                uint8_t buf[256];
-                res = read(fd, buf, sizeof(buf));
-                assert(res > 0);
-                struct drm_event_vblank flip_done;
-                memcpy(&flip_done, buf, sizeof(flip_done));
-                //printf("drm_event_vblank.sequence = %" PRIu32 "\n", flip_done.sequence);
-            }
-        }
-
         thrd_sleep(&sleep_time, NULL);
-
-        res = drmModeSetCrtc(fd, connected_crtc_id, previous_fb_id,
-                0, 0, &connector_id, 1, &mode);
     }
 private:
 };
@@ -160,11 +86,18 @@ int main(int argc, const char* argv[]){
     auto drm_device_path = argv[1];
     auto drm_test =
         add_drm_test<
+        replace_fb<
+        add_fb_with_amdgpu_bo<
+        select_default_crtc<
         add_amdgpu_bo<
+        set_bo_alloc_size<
         add_amdgpu_device<
+        select_default_encoder<
+        select_first_connected_connector<
+        cache_drm_resources<
         add_drm_fd<
         cpp_helper::empty_class
-        >>>>
+        >>>>>>>>>>>
         {conf{.drm_device_path = drm_device_path}};
     drm_test.test();
     return 0;

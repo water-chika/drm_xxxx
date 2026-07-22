@@ -12,13 +12,12 @@ int main(int argc, const char** argv) {
     }
     auto drm_device_path = argv[1];
     auto app =
-        add_amdgpu_bo<
         cache_heap_infos<
         cache_gpu_info<
         add_amdgpu_device<
         add_drm_fd<
         cpp_helper::empty_class
-        >>>>>
+        >>>>
         {conf{.drm_device_path = drm_device_path}};
     return 0;
 }

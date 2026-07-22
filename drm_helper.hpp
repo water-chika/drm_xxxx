@@ -57,6 +57,152 @@ private:
     int fd;
 };
 
+template<typename T>
+class cache_drm_resources : public T {
+public:
+    using parent = T;
+    cache_drm_resources(const configure auto& conf) : parent{conf},
+        resources{query_resources()}
+    {}
+    ~cache_drm_resources() {
+        drmModeFreeResources(resources);
+    }
+    auto get_drm_resources() {
+        return resources;
+    }
+private:
+    auto query_resources() {
+        auto fd = parent::get_drm_fd();
+        drmModeRes* resources = drmModeGetResources(fd);
+        if (resources == nullptr) {
+            throw std::runtime_error{"drmModeGetResources failed"};
+        }
+        return resources;
+    }
+    drmModeRes* resources;
+};
+
+template<typename T>
+class select_first_connected_connector : public T {
+public:
+    using parent = T;
+    select_first_connected_connector(const configure auto& conf) : parent{conf},
+        connector{find_first_connected_connector()}
+    {}
+    ~select_first_connected_connector() {
+        if (connector != nullptr) {
+            drmModeFreeConnector(connector);
+            connector = nullptr;
+        }
+    }
+    auto get_drm_connector() {
+        return connector;
+    }
+    auto get_drm_mode() {
+        return &connector->modes[0];
+    }
+private:
+    drmModeConnector* find_first_connected_connector() {
+        auto fd = parent::get_drm_fd();
+        auto resources = parent::get_drm_resources();
+        for (int i = 0; i < resources->count_connectors; i++) {
+            uint32_t connector_id = resources->connectors[i];
+            drmModeConnector* connector = drmModeGetConnector(fd, connector_id);
+            if (connector->connection == DRM_MODE_CONNECTED){
+                return connector;
+            }
+            drmModeFreeConnector(connector);
+        }
+        return nullptr;
+    }
+    drmModeConnector* connector;
+};
+
+template<typename T>
+class select_default_encoder : public T {
+public:
+    using parent = T;
+    select_default_encoder(const configure auto& conf) : parent{conf},
+        encoder{query_encoder()}
+    {}
+    ~select_default_encoder() {
+        if (encoder != nullptr) {
+            drmModeFreeEncoder(encoder);
+            encoder = nullptr;
+        }
+    }
+    auto get_drm_encoder() {
+        return encoder;
+    }
+private:
+    drmModeEncoder* query_encoder() {
+        auto fd = parent::get_drm_fd();
+        auto connector = parent::get_drm_connector();
+        drmModeEncoder* encoder = drmModeGetEncoder(fd, connector->encoder_id);
+        return encoder;
+    }
+    drmModeEncoder* encoder;
+};
+
+template<typename T>
+class select_default_crtc : public T {
+public:
+    using parent = T;
+    select_default_crtc(const configure auto& conf) : parent{conf},
+        crtc{query_crtc()}
+    {}
+    ~select_default_crtc() {
+        if (crtc != nullptr) {
+            drmModeFreeCrtc(crtc);
+            crtc = nullptr;
+        }
+    }
+    auto get_drm_crtc() {
+        return crtc;
+    }
+private:
+    drmModeCrtc* query_crtc() {
+        auto fd = parent::get_drm_fd();
+        auto encoder = parent::get_drm_encoder();
+        drmModeCrtc* crtc = drmModeGetCrtc(fd, encoder->crtc_id);
+        return crtc;
+    }
+    drmModeCrtc* crtc;
+};
+
+template<typename T>
+class replace_fb : public T {
+public:
+    using parent = T;
+    replace_fb(const configure auto& conf) : parent{conf},
+        previous_fb_id{parent::get_drm_crtc()->buffer_id}
+    {
+        auto fd = parent::get_drm_fd();
+        auto crtc = parent::get_drm_crtc();
+        auto connector = parent::get_drm_connector();
+        auto mode = parent::get_drm_mode();
+        auto fb = parent::get_drm_fb();
+        auto connector_id = connector->connector_id;
+        int res = drmModeSetCrtc(fd, crtc->crtc_id, fb->fb_id,
+                0, 0, &connector_id, 1, mode);
+        if (res != 0) {
+            throw std::runtime_error{"drmModeSetCrtc failed"};
+        }
+    }
+    ~replace_fb() {
+        auto fd = parent::get_drm_fd();
+        auto crtc = parent::get_drm_crtc();
+        auto connector = parent::get_drm_connector();
+        auto mode = parent::get_drm_mode();
+        auto connector_id = connector->connector_id;
+        int res = drmModeSetCrtc(fd, crtc->crtc_id, previous_fb_id,
+                0, 0, &connector_id, 1, mode);
+        assert(res == 0);
+    }
+private:
+    uint32_t previous_fb_id;
+};
+
 std::ostream& operator<<(std::ostream& out, const drmModeRes& res) {
     out << "fbs count: " << res.count_fbs << std::endl;
     out << "crtcs count: " << res.count_crtcs << std::endl;
@@ -301,8 +447,10 @@ public:
         auto dev = parent::get_amdgpu_device();
         amdgpu_bo_handle handle;
 
+        auto alloc_size = parent::get_bo_alloc_size();
+
         amdgpu_bo_alloc_request alloc_request{
-            .alloc_size = 3980*2160*sizeof(uint32_t),
+            .alloc_size = alloc_size,
             .phys_alignment = 4096,
             .preferred_heap = AMDGPU_GEM_DOMAIN_VRAM | AMDGPU_GEM_DOMAIN_GTT,
             .flags = AMDGPU_GEM_CREATE_CPU_GTT_USWC,
@@ -321,4 +469,45 @@ public:
 private:
     amdgpu_bo_handle bo_handle;
 };
+
+template<typename T>
+class add_fb_with_amdgpu_bo : public T {
+public:
+    using parent = T;
+    add_fb_with_amdgpu_bo(const configure auto& conf) : parent{conf},
+        fb{add_fb()}
+    {}
+    ~add_fb_with_amdgpu_bo() {
+        if (fb != nullptr) {
+            auto fd = parent::get_drm_fd();
+            drmModeRmFB(fd, fb->fb_id);
+            drmModeFreeFB(fb);
+            fb = nullptr;
+        }
+    }
+    auto get_drm_fb() {
+        return fb;
+    }
+private:
+    auto add_fb() {
+        uint32_t fb_handle{};
+        uint32_t fb_id=0;
+        uint64_t fb_size = parent::get_bo_alloc_size();
+        auto fd = parent::get_drm_fd();
+        auto mode = parent::get_drm_mode();
+        auto width = mode->hdisplay, height = mode->vdisplay;
+        uint32_t pitch=mode->hdisplay*sizeof(uint32_t);
+        int ret = amdgpu_bo_export(parent::get_amdgpu_bo(), amdgpu_bo_handle_type_kms, &fb_handle);
+        if (ret < 0) {
+            throw std::runtime_error{"amdgpu_bo_export failed"};
+        }
+        ret = drmModeAddFB(fd, width, height, 24, 32, pitch, fb_handle, &fb_id);
+        if (ret != 0) {
+            std::cerr << std::format("drmModAddFB failed: {}", ret) << std::endl;
+        }
+        return drmModeGetFB(fd, fb_id);
+    }
+    drmModeFB* fb;
+};
+
 }
